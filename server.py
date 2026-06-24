@@ -1,6 +1,11 @@
+import json
 import socket
+import threading
 
+from core.commands import UnknownCommandError, parse_command
 from core.game import Game
+from core.states import InvalidActionError
+from protocol import receive_lines, send_message
 
 HOST = "0.0.0.0"
 PORT = 5000
@@ -13,11 +18,46 @@ def wait_for_players(server_socket, game):
         conn, addr = server_socket.accept()
         player_id = len(players) + 1
         print(f"Player {player_id} connected from {addr}")
-        conn.sendall(f"Welcome, you are Player {player_id}\n".encode())
+        send_message(conn, {"type": "WELCOME", "player_id": player_id})
         players.append(conn)
         game.player_connected(player_id)
 
     return players
+
+
+def handle_player(conn, player_id, game, connections, lock):
+    for line in receive_lines(conn):
+        try:
+            command = parse_command(json.loads(line))
+        except (json.JSONDecodeError, UnknownCommandError) as exc:
+            send_message(conn, {"type": "ERROR", "message": str(exc)})
+            continue
+
+        with lock:
+            try:
+                command.execute(game, player_id)
+            except InvalidActionError as exc:
+                send_message(conn, {"type": "ERROR", "message": str(exc)})
+                continue
+            phase = game.phase_name
+
+        for other_conn in connections:
+            send_message(other_conn, {"type": "STATE", "phase": phase})
+
+
+def run_game_loop(connections, game):
+    for conn in connections:
+        send_message(conn, {"type": "STATE", "phase": game.phase_name})
+
+    lock = threading.Lock()
+    threads = [
+        threading.Thread(target=handle_player, args=(conn, player_id, game, connections, lock))
+        for player_id, conn in enumerate(connections, start=1)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
 
 
 def main():
@@ -28,11 +68,10 @@ def main():
     print(f"Server listening on {HOST}:{PORT}, waiting for 2 players...")
 
     game = Game()
-    players = wait_for_players(server_socket, game)
+    connections = wait_for_players(server_socket, game)
     print(f"Both players connected. Game phase: {game.phase_name}")
 
-    for conn in players:
-        conn.sendall(b"Both players connected. Game starting!\n")
+    run_game_loop(connections, game)
 
 
 if __name__ == "__main__":

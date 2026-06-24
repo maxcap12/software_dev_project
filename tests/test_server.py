@@ -1,3 +1,4 @@
+import json
 import socket
 import threading
 
@@ -21,10 +22,10 @@ def test_wait_for_players_accepts_two_connections_in_order():
     server_thread.start()
 
     client1 = socket.create_connection(("127.0.0.1", port))
-    assert client1.recv(1024) == b"Welcome, you are Player 1\n"
+    assert json.loads(client1.recv(1024)) == {"type": "WELCOME", "player_id": 1}
 
     client2 = socket.create_connection(("127.0.0.1", port))
-    assert client2.recv(1024) == b"Welcome, you are Player 2\n"
+    assert json.loads(client2.recv(1024)) == {"type": "WELCOME", "player_id": 2}
 
     server_thread.join(timeout=2)
 
