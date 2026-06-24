@@ -1,6 +1,7 @@
 import socket
 import threading
 
+from core.game import Game
 from server import wait_for_players
 
 
@@ -10,10 +11,11 @@ def test_wait_for_players_accepts_two_connections_in_order():
     server_socket.listen()
     port = server_socket.getsockname()[1]
 
+    game = Game()
     result = {}
 
     def run_server():
-        result["players"] = wait_for_players(server_socket)
+        result["players"] = wait_for_players(server_socket, game)
 
     server_thread = threading.Thread(target=run_server)
     server_thread.start()
@@ -27,6 +29,7 @@ def test_wait_for_players_accepts_two_connections_in_order():
     server_thread.join(timeout=2)
 
     assert len(result["players"]) == 2
+    assert game.phase_name == "PLACING_SHIPS"
 
     client1.close()
     client2.close()
