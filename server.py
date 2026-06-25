@@ -2,6 +2,7 @@ import json
 import socket
 import threading
 
+from core.board import AttackError, PlacementError
 from core.commands import UnknownCommandError, parse_command
 from core.game import Game
 from core.states import InvalidActionError
@@ -29,20 +30,23 @@ def handle_player(conn, player_id, game, connections, lock):
     for line in receive_lines(conn):
         try:
             command = parse_command(json.loads(line))
-        except (json.JSONDecodeError, UnknownCommandError) as exc:
+        except (UnknownCommandError, KeyError, ValueError) as exc:
             send_message(conn, {"type": "ERROR", "message": str(exc)})
             continue
 
         with lock:
             try:
-                command.execute(game, player_id)
-            except InvalidActionError as exc:
+                details = command.execute(game, player_id)
+            except (InvalidActionError, AttackError, PlacementError) as exc:
                 send_message(conn, {"type": "ERROR", "message": str(exc)})
                 continue
-            phase = game.phase_name
+            message = {"type": "STATE", "phase": game.phase_name, **details}
+            if game.winner is not None:
+                message["winner"] = game.winner
 
-        for other_conn in connections:
-            send_message(other_conn, {"type": "STATE", "phase": phase})
+        recipients = connections if command.public else [conn]
+        for recipient in recipients:
+            send_message(recipient, message)
 
 
 def run_game_loop(connections, game):

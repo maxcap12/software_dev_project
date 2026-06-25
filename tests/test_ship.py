@@ -1,4 +1,4 @@
-from core.ship import Ship
+from core.ship import Ship, ShipFactory
 
 
 def test_ship_starts_unsunk_with_no_hits():
@@ -21,3 +21,15 @@ def test_ship_is_sunk_once_every_coordinate_is_hit():
 
     ship.register_hit(1, 0)
     assert ship.is_sunk
+
+
+def test_ship_factory_creates_ship_with_correct_size():
+    carrier = ShipFactory.create("Carrier")
+    assert carrier.name == "Carrier"
+    assert carrier.size == 5
+
+
+def test_ship_factory_creates_the_standard_five_ship_fleet():
+    fleet = ShipFactory.create_fleet()
+    assert set(fleet) == {"Carrier", "Battleship", "Cruiser", "Submarine", "Destroyer"}
+    assert sum(ship.size for ship in fleet.values()) == 17
