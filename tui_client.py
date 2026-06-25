@@ -13,6 +13,15 @@ from protocol import receive_lines, send_message
 HOST = "127.0.0.1"
 PORT = 5000
 
+SHIP_SIZES = {
+    "Carrier": 5,
+    "Battleship": 4,
+    "Cruiser": 3,
+    "Submarine": 3,
+    "Destroyer": 2,
+}
+TOTAL_SHIPS = len(SHIP_SIZES)
+
 
 def _empty_row() -> list[Text]:
     return [Text(".", style="bright_black") for _ in range(10)]
@@ -69,6 +78,10 @@ class TuiClient(App):
 
     def on_mount(self) -> None:
         self._sock = None
+        self._fleet_grid = [[False] * 10 for _ in range(10)]
+        self._pending_placements: dict[str, dict] = {}
+        self._ships_placed = 0
+        self._phase: str | None = None
         self._setup_grids()
         self._connect()
 
@@ -105,10 +118,55 @@ class TuiClient(App):
         try:
             for line in receive_lines(self._sock):
                 msg = json.loads(line)
-                self.call_from_thread(self._write, f"[bold cyan][server][/bold cyan] {msg}")
+                self.call_from_thread(self._handle_server_message, msg)
         except Exception as exc:
             self.call_from_thread(self._write, f"[red]Connection closed: {exc}[/red]")
             self.call_from_thread(self._set_status, "Disconnected")
+
+    def _handle_server_message(self, msg: dict) -> None:
+        msg_type = msg.get("type")
+
+        if msg_type == "ERROR":
+            self._write(f"[bold red][error][/bold red] {msg.get('message', msg)}")
+            return
+
+        self._write(f"[bold cyan][server][/bold cyan] {msg}")
+
+        if msg_type != "STATE":
+            return
+
+        phase = msg.get("phase")
+        if phase != self._phase:
+            self._phase = phase
+            if phase == "PLACING_SHIPS":
+                self._set_status(f"Placing ships — 0/{TOTAL_SHIPS} placed")
+
+        if "ship" in msg:
+            self._on_ship_placed(msg["ship"])
+
+    def _on_ship_placed(self, ship_name: str) -> None:
+        pending = self._pending_placements.pop(ship_name, None)
+        if pending is None:
+            return
+
+        size = SHIP_SIZES.get(ship_name, 0)
+        x, y, orientation = pending["x"], pending["y"], pending["orientation"]
+        coords = (
+            [(x + i, y) for i in range(size)]
+            if orientation == "HORIZONTAL"
+            else [(x, y + i) for i in range(size)]
+        )
+
+        table: DataTable = self.query_one("#fleet-grid", DataTable)
+        for cx, cy in coords:
+            self._fleet_grid[cy][cx] = True
+            table.update_cell(str(cy), str(cx), Text("S", style="bold green"))
+
+        self._ships_placed += 1
+        if self._ships_placed == TOTAL_SHIPS:
+            self._set_status("All ships placed — type ready when set")
+        else:
+            self._set_status(f"Placing ships — {self._ships_placed}/{TOTAL_SHIPS} placed")
 
     def _write(self, text: str) -> None:
         try:
@@ -142,11 +200,20 @@ class TuiClient(App):
             self._write("[red]Not connected — server is unreachable.[/red]")
             return
 
+        if msg.get("type") == "PLACE_SHIP":
+            self._pending_placements[msg["ship"]] = {
+                "x": msg["x"],
+                "y": msg["y"],
+                "orientation": msg["orientation"],
+            }
+
         try:
             send_message(self._sock, msg)
             self._write(f"[dim]> {raw}[/dim]")
         except OSError as exc:
             self._write(f"[red]Send failed: {exc}[/red]")
+            if msg.get("type") == "PLACE_SHIP":
+                self._pending_placements.pop(msg["ship"], None)
 
     def on_unmount(self) -> None:
         if self._sock:
