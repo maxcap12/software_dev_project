@@ -5,6 +5,7 @@ import threading
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
+from textual.screen import ModalScreen
 from textual.widgets import DataTable, Header, Input, RichLog, Static
 
 from client import parse_input
@@ -25,6 +26,48 @@ TOTAL_SHIPS = len(SHIP_SIZES)
 
 def _empty_row() -> list[Text]:
     return [Text(".", style="bright_black") for _ in range(10)]
+
+
+class GameOverScreen(ModalScreen):
+    BINDINGS = [("q", "quit_app", "Quit"), ("escape", "quit_app", "Quit")]
+
+    CSS = """
+    GameOverScreen {
+        align: center middle;
+    }
+
+    #game-over-box {
+        width: auto;
+        min-width: 36;
+        height: auto;
+        padding: 2 4;
+        border: double $accent;
+        background: $surface;
+    }
+
+    #game-over-msg {
+        text-align: center;
+        width: 100%;
+    }
+
+    #game-over-hint {
+        text-align: center;
+        width: 100%;
+        color: $text-muted;
+    }
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__()
+        self._message = message
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="game-over-box"):
+            yield Static(self._message, id="game-over-msg")
+            yield Static("Press Q to quit", id="game-over-hint")
+
+    def action_quit_app(self) -> None:
+        self.app.exit()
 
 
 class TuiClient(App):
@@ -165,6 +208,14 @@ class TuiClient(App):
             self._on_fire_result(msg)
         elif "ship" in msg:
             self._on_ship_placed(msg["ship"])
+
+        if "winner" in msg:
+            self.query_one(Input).disabled = True
+            winner = msg.get("winner")
+            if winner == self._player_id:
+                self.push_screen(GameOverScreen("[bold green]🎉 You win![/bold green]"))
+            else:
+                self.push_screen(GameOverScreen("[bold red]💀 You lose.[/bold red]"))
 
     def _on_ship_placed(self, ship_name: str) -> None:
         pending = self._pending_placements.pop(ship_name, None)
