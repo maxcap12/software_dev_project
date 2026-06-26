@@ -161,7 +161,9 @@ class TuiClient(App):
             self._ready_sent = False
             self._set_status("Waiting for opponent to be ready…")
 
-        if "ship" in msg:
+        if "attacker" in msg:
+            self._on_fire_result(msg)
+        elif "ship" in msg:
             self._on_ship_placed(msg["ship"])
 
     def _on_ship_placed(self, ship_name: str) -> None:
@@ -187,6 +189,24 @@ class TuiClient(App):
             self._set_status("All ships placed — type ready when set")
         else:
             self._set_status(f"Placing ships — {self._ships_placed}/{TOTAL_SHIPS} placed")
+
+    def _on_fire_result(self, msg: dict) -> None:
+        attacker = msg.get("attacker")
+        x, y = msg.get("x"), msg.get("y")
+        hit = msg.get("hit")
+        sunk = msg.get("sunk")
+        ship = msg.get("ship")
+
+        cell = Text("X", style="bold red") if hit else Text("O", style="bold blue")
+
+        if attacker == self._player_id:
+            self.query_one("#attack-grid", DataTable).update_cell(str(y), str(x), cell)
+            if sunk:
+                self._write(f"[red]You sunk their {ship}![/red]")
+        else:
+            self.query_one("#fleet-grid", DataTable).update_cell(str(y), str(x), cell)
+            if sunk:
+                self._write(f"[red]Your {ship} was sunk![/red]")
 
     def _write(self, text: str) -> None:
         try:
