@@ -10,6 +10,7 @@ from textual.widgets import DataTable, Header, Input, RichLog, Static
 
 from client import parse_input
 from protocol import receive_lines, send_message
+from tui_helpers import compute_cell, status_text
 
 HOST = "127.0.0.1"
 PORT = 5000
@@ -191,15 +192,10 @@ class TuiClient(App):
             self._phase = phase
             self._ready_sent = False
             if phase == "PLACING_SHIPS":
-                self._set_status(f"Placing ships — 0/{TOTAL_SHIPS} placed")
+                self._set_status(f"{status_text(phase, self._player_id)} — 0/{TOTAL_SHIPS} placed")
             elif phase in ("PLAYER_1_TURN", "PLAYER_2_TURN"):
-                my_turn = phase == f"PLAYER_{self._player_id}_TURN"
-                if my_turn:
-                    self._set_status("Your turn — fire <x> <y>")
-                    self.query_one(Input).disabled = False
-                else:
-                    self._set_status("Opponent's turn — wait…")
-                    self.query_one(Input).disabled = True
+                self._set_status(status_text(phase, self._player_id))
+                self.query_one(Input).disabled = (phase != f"PLAYER_{self._player_id}_TURN")
         elif phase == "PLACING_SHIPS" and self._ready_sent:
             self._ready_sent = False
             self._set_status("Waiting for opponent to be ready…")
@@ -248,7 +244,8 @@ class TuiClient(App):
         sunk = msg.get("sunk")
         ship = msg.get("ship")
 
-        cell = Text("X", style="bold red") if hit else Text("O", style="bold blue")
+        symbol, style = compute_cell(hit)
+        cell = Text(symbol, style=f"bold {style}")
 
         if attacker == self._player_id:
             self.query_one("#attack-grid", DataTable).update_cell(str(y), str(x), cell)
