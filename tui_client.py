@@ -82,6 +82,8 @@ class TuiClient(App):
         self._pending_placements: dict[str, dict] = {}
         self._ships_placed = 0
         self._phase: str | None = None
+        self._player_id: int | None = None
+        self._ready_sent: bool = False
         self._setup_grids()
         self._connect()
 
@@ -127,7 +129,13 @@ class TuiClient(App):
         msg_type = msg.get("type")
 
         if msg_type == "ERROR":
+            self._ready_sent = False
             self._write(f"[bold red][error][/bold red] {msg.get('message', msg)}")
+            return
+
+        if msg_type == "WELCOME":
+            self._player_id = msg.get("player_id")
+            self._write(f"[bold cyan][server][/bold cyan] {msg}")
             return
 
         self._write(f"[bold cyan][server][/bold cyan] {msg}")
@@ -138,8 +146,20 @@ class TuiClient(App):
         phase = msg.get("phase")
         if phase != self._phase:
             self._phase = phase
+            self._ready_sent = False
             if phase == "PLACING_SHIPS":
                 self._set_status(f"Placing ships — 0/{TOTAL_SHIPS} placed")
+            elif phase in ("PLAYER_1_TURN", "PLAYER_2_TURN"):
+                my_turn = phase == f"PLAYER_{self._player_id}_TURN"
+                if my_turn:
+                    self._set_status("Your turn — fire <x> <y>")
+                    self.query_one(Input).disabled = False
+                else:
+                    self._set_status("Opponent's turn — wait…")
+                    self.query_one(Input).disabled = True
+        elif phase == "PLACING_SHIPS" and self._ready_sent:
+            self._ready_sent = False
+            self._set_status("Waiting for opponent to be ready…")
 
         if "ship" in msg:
             self._on_ship_placed(msg["ship"])
@@ -210,6 +230,8 @@ class TuiClient(App):
         try:
             send_message(self._sock, msg)
             self._write(f"[dim]> {raw}[/dim]")
+            if msg.get("type") == "READY":
+                self._ready_sent = True
         except OSError as exc:
             self._write(f"[red]Send failed: {exc}[/red]")
             if msg.get("type") == "PLACE_SHIP":
